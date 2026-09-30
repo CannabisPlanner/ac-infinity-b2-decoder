@@ -1,0 +1,58 @@
+package com.ivangospocic.cannabisplanner.bluetooth
+
+/**
+ * Decoder for the AC Infinity CLOUDCOM thermo-hygrometer (model B2), from BLE
+ * manufacturer-specific advertisement data.
+ *
+ * The format is NOT officially documented - it was reverse-engineered from an nRF Logger
+ * capture of GATT notify packets (characteristic 70d51002-...) and verified against a
+ * CSV export from the official AC Infinity app (21 minutes, temperature drop from 21°C
+ * to 14.5°C: regression slope 0.994 for temperature, 1.000 for humidity, mean deviation
+ * -0.03°C / -0.09%).
+ *
+ * The full 31-byte packet follows a standard AD structure: 1E FF | 02 09 | MAC reversed (6) | payload (21).
+ * The company ID is 0x0902 (bytes 02 09, little-endian) and is STABLE, unlike ThermoPro's.
+ *
+ * Android's ScanRecord.getManufacturerSpecificData(0x0902) returns the bytes AFTER the company ID:
+ *   data[0..5]  = MAC address, reversed (ignored)
+ *   data[6 + i] = payload[i]
+ *
+ * Payload (indices i, counted from the start of the payload):
+ *   payload[3]  = battery, %, uint8
+ *   payload[9], payload[10] (high nibble) = temperature*10, 12 bits: (b9 << 4) | (b10 >> 4)
+ *   payload[10] (low nibble), payload[11] = humidity*10, 12 bits: ((b10 & 0x0F) << 8) | b11
+ *   payload[2]  = likely VPD in 0.01 kPa units (unverified, not used)
+ *   payload[20] = rolling counter (ignored)
+ *   rest        = constant / flags, not used
+ *
+ * Note: humidity in the packet shows occasional transient spikes of about ±1% within a
+ * 5-second cycle; this is a device characteristic, not a decoder bug.
+ */
+object AcInfinityDecoder {
+
+    /** Manufacturer / Company ID from the packet (bytes 02 09, little-endian). */
+    const val COMPANY_ID = 0x0902
+
+    private const val MAC_LENGTH = 6
+    private const val MIN_SIZE = MAC_LENGTH + 12 // highest byte used is payload[11]
+
+    /**
+     * @param valueBytes the bytes AFTER the company ID, exactly as returned by
+     *   ScanRecord.getManufacturerSpecificData(COMPANY_ID) (reversed MAC + payload).
+     * @return Triple(temp °C, humidity %, battery % or null if outside 0..100)
+     */
+    fun decode(valueBytes: ByteArray): Triple<Float, Float, Int?>? {
+        if (valueBytes.size < MIN_SIZE) return null
+
+        fun payload(i: Int): Int = valueBytes[MAC_LENGTH + i].toInt() and 0xFF
+
+        val temp = ((payload(9) shl 4) or (payload(10) shr 4)) / 10.0f
+        val hum = (((payload(10) and 0x0F) shl 8) or payload(11)) / 10.0f
+        val battery = payload(3).takeIf { it in 0..100 }
+
+        if (temp in -40.0f..80.0f && hum in 0.0f..100.0f) {
+            return Triple(temp, hum, battery)
+        }
+        return null
+    }
+}
