@@ -15,6 +15,9 @@ Reverse-engineered Bluetooth Low Energy (BLE) decoder for AC Infinity smart ther
 
 **If you own an A1, A2, or B1 device, testing help is very welcome** — see [Contributing](#contributing) below.
 
+<img width="957" height="781" alt="image" src="https://github.com/user-attachments/assets/15b98139-5cba-4a8d-bb75-3e2d0f8fed34" />
+
+
 ## How it works
 
 The device broadcasts a BLE advertisement packet with manufacturer-specific data under company ID `0x0902` (bytes `02 09`, little-endian). No connection/pairing is needed — the data can be read passively by any nearby BLE scanner, which means multiple listeners (e.g. this decoder *and* the official AC Infinity app) can read it simultaneously without conflict.
